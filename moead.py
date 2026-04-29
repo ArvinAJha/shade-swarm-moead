@@ -304,7 +304,12 @@ class MOEAD:
         if not os.path.exists(frames_dir):
             os.makedirs(frames_dir)
         
-        G = graph
+        G = nx.Graph()
+        for node in graph.keys():
+            G.add_node(node.id, people=node.people)
+        for node, neighbors in graph.items():
+            for neighbor in neighbors:
+                G.add_edge(node.id, neighbor.id)
         
         # Use circular layout for clarity and consistency
         pos = nx.circular_layout(G)
@@ -325,6 +330,7 @@ class MOEAD:
 
             # Draw edges in light gray
             nx.draw_networkx_edges(G, pos, ax=ax, alpha=0.15, width=1.5, edge_color='gray')
+            nx.draw_networkx_nodes(G, pos, ax=ax, node_color='lightblue', edgecolors='black', node_size=500, alpha=0.8)
             
             # Draw individual bots offset from node positions - arranged around nodes
             offset_distance = 0.2
