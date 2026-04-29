@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 from graph import dense_graph, Node, visualize_graph
 import random
 import networkx as nx
-import imageio
 import os
 
 """
