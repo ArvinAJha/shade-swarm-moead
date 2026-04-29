@@ -40,7 +40,14 @@ def create_kregular_graph(num_nodes=70, k=4):
     
     return graph
 
-def visualize_graph(graph, filename="campus_graph.png", layout="spring"):
+def create_small_world_graph(num_nodes=70, k=4, p=0.3):
+    G = nx.watts_strogatz_graph(num_nodes, k, p)
+    nodes = [Node(i, people=int(np.ceil(np.random.normal(12, 5)))) for i in range(num_nodes)]
+    node_map = {i: node for i, node in enumerate(nodes)}
+    graph = {node_map[i]: {node_map[j] for j in G.neighbors(i)} for i in range(num_nodes)}
+    return graph
+
+def visualize_graph(graph, filename="campus_graph.png"):
     # Convert to networkx graph
     G = nx.Graph()
     
@@ -57,14 +64,7 @@ def visualize_graph(graph, filename="campus_graph.png", layout="spring"):
     fig, ax = plt.subplots(figsize=(14, 10))
     
     # Choose layout
-    if layout == "spring":
-        pos = nx.spring_layout(G, k=0.5, iterations=50, seed=42)
-    elif layout == "circular":
-        pos = nx.circular_layout(G)
-    elif layout == "kamada_kawai":
-        pos = nx.kamada_kawai_layout(G)
-    else:
-        pos = nx.spring_layout(G, k=0.5, iterations=50, seed=42)
+    pos = nx.spring_layout(G, k=0.5, iterations=50, seed=42)
     
     # Color nodes by people count
     people_counts = [G.nodes[node]['people'] for node in G.nodes()]
@@ -85,7 +85,7 @@ def visualize_graph(graph, filename="campus_graph.png", layout="spring"):
     cbar = plt.colorbar(nodes, ax=ax, label='People Count')
     
     # Formatting
-    ax.set_title('TITLE HERE', fontsize=28, fontweight='bold')
+    ax.set_title('Graph Representation of Traversable Map', fontsize=28, fontweight='bold')
     ax.axis('off')
     
     plt.tight_layout()
@@ -95,3 +95,5 @@ def visualize_graph(graph, filename="campus_graph.png", layout="spring"):
 
 # Create graph with 70 nodes, each with ~4 neighbors
 dense_graph = create_kregular_graph(num_nodes=70, k=4)
+
+# dense_graph = create_small_world_graph(num_nodes=8, k=2, p=0.3)

@@ -95,7 +95,7 @@ class MOEAD:
         self.lambdas = np.empty((pop_size_n, 3))  # weight vectors for the 3 objectives
 
         self.zi = np.array([float('inf')] * 3)  # ideal point, initialized to infinity for minimization
-        self.nadir = np.array([-float('inf')] * 3)  # nadir point, initialized to negative infinity for minimization
+        self.nadir = np.array([-float('inf')] * 3)  # nadir point, use this to track the worst objective values. Used to normalize values later. 
 
         # This is how the map is defined. Where the bots can go, where people are. 
         self.map = map
@@ -112,7 +112,8 @@ class MOEAD:
         self.ep = []
 
     def initialize_weight_vectors(self):
-        # TODO: Use Das and Dennis method to initialize weight vectors.
+        # randomly weight vectors for each subproblem. 
+        # sub of weights should add to 1.
         self.lambdas = np.random.rand(self.pop_size_n, 3)
         self.lambdas = self.lambdas / np.sum(self.lambdas, axis=1, keepdims=True)
     
@@ -170,7 +171,7 @@ class MOEAD:
         """
         # Calculate the range (max - min) to normalize the objective.
         range_z = self.nadir - self.zi
-        range_z[range_z == 0] = 1e-5  # add machine epsilon to avoid /0 (not really epsilon but small value)
+        range_z[range_z == 0] = 1e-5  # add machine epsilon to avoid / 0 (not really epsilon but small value)
         
         # Normalize the fitness to a 0.0 - 1.0 scale
         normalized_fitness = (child_fitness - self.zi) / range_z
@@ -257,8 +258,8 @@ class MOEAD:
             # gen_fitness is (pop_size_n, 3)
             gen_fitness = np.array(gen_fitness)
             
-            # Normalize fitness values to [-1, 1]
-            normalized_fitness = 2 * (gen_fitness - self.zi) / range_z - 1
+            # Normalize fitness values to [0, 1]
+            normalized_fitness = (gen_fitness - self.zi) / range_z
             
             # Color: light blue (gen 0) to dark blue (final generation)
             color_intensity = gen_idx / max(1, num_generations - 1)  # 0 to 1
@@ -266,12 +267,12 @@ class MOEAD:
             
             # Plot all solutions from this generation
             ax.scatter(normalized_fitness[:, 0], normalized_fitness[:, 1], normalized_fitness[:, 2],
-                      color=color, s=30, alpha=0.6, label=f"Gen {gen_idx}" if gen_idx % max(1, num_generations // 5) == 0 else "")
+                      color=color, s=30, alpha=0.6)
         
         # Highlight EP solutions in red
         if self.ep:
             ep_fitness = np.array([fitness for _, fitness in self.ep])
-            normalized_ep_fitness = 2 * (ep_fitness - self.zi) / range_z - 1
+            normalized_ep_fitness = (ep_fitness - self.zi) / range_z
             ax.scatter(normalized_ep_fitness[:, 0], normalized_ep_fitness[:, 1], normalized_ep_fitness[:, 2],
                       color='red', s=100, marker='*', edgecolors='darkred', linewidths=2, 
                       label='Efficient Set (EP)', zorder=5)
@@ -283,9 +284,9 @@ class MOEAD:
         ax.set_title('3D Objective Space: Evolution Progress', fontsize=13, fontweight='bold')
         
         # Set normalized axis limits
-        ax.set_xlim(-1, 1)
-        ax.set_ylim(-1, 1)
-        ax.set_zlim(-1, 1)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_zlim(0, 1)
         
         # Set isometric view
         ax.view_init(elev=20, azim=45)
@@ -298,105 +299,88 @@ class MOEAD:
         print(f"Visualization saved to {filename}")
         plt.close()
     
-    def visualize_swarm_trajectory(self, individual, episode_name="swarm_trajectory", fps=1):
-        """
-        Visualize a swarm's movement across all timesteps.
-        Creates individual frames for each timestep and stitches them into a GIF.
-        
-        @param individual: Single swarm individual from EP - shape (num_bots, timeline)
-        @param episode_name: Base name for output files
-        @param fps: Frames per second for the GIF
-        """
+    def visualize_swarm_trajectory(self, individual, graph, episode_name="swarm_trajectory", fps=2):
         frames_dir = f"{episode_name}_frames"
         if not os.path.exists(frames_dir):
             os.makedirs(frames_dir)
         
-        # Convert graph to networkx
-        G = nx.Graph()
-        for node in self.map.keys():
-            G.add_node(node.id, people=node.people)
-        for node, neighbors in self.map.items():
-            for neighbor in neighbors:
-                G.add_edge(node.id, neighbor.id)
+        G = graph
         
-        # Use spring layout for consistent positioning across all frames
-        pos = nx.spring_layout(G, k=0.5, iterations=50, seed=42)
+        # Use circular layout for clarity and consistency
+        pos = nx.circular_layout(G)
         
         frame_files = []
         num_bots, timeline = individual.shape
+        
+        # Color palette for individual bots
+        bot_colors = plt.cm.tab20(np.linspace(0, 1, num_bots))
         
         # Create frame for each timestep
         for timestep in range(timeline):
             fig, ax = plt.subplots(figsize=(12, 10))
             
-            # Get bot positions at this timestep
-            bots_at_timestep = individual[:, timestep]
-            bot_positions = {}
-            for bot_id, node in enumerate(bots_at_timestep):
-                if node.id not in bot_positions:
-                    bot_positions[node.id] = 0
-                bot_positions[node.id] += 1
+            # Get bot positions at current and next timestep
+            current_bots = individual[:, timestep]
+            next_bots = individual[:, timestep + 1] if timestep < timeline - 1 else current_bots
+
+            # Draw edges in light gray
+            nx.draw_networkx_edges(G, pos, ax=ax, alpha=0.15, width=1.5, edge_color='gray')
             
-            # Draw edges
-            nx.draw_networkx_edges(G, pos, ax=ax, alpha=0.2, width=1)
+            # Draw individual bots offset from node positions - arranged around nodes
+            offset_distance = 0.2
+            for bot_id in range(num_bots):
+                current_node_id = current_bots[bot_id].id
+                next_node_id = next_bots[bot_id].id
+                
+                current_node_pos = pos[current_node_id]
+                next_node_pos = pos[next_node_id]
+                
+                # Arrange bots in a circle around their node (not stacked)
+                # Each bot gets its own angle based on its ID
+                angle_per_bot = 2 * np.pi / num_bots
+                bot_angle = bot_id * angle_per_bot
+                
+                # Position current bot around current node
+                bot_current_pos = (current_node_pos[0] + offset_distance * np.cos(bot_angle),
+                                  current_node_pos[1] + offset_distance * np.sin(bot_angle))
+                
+                # Position next bot around next node
+                bot_next_pos = (next_node_pos[0] + offset_distance * np.cos(bot_angle),
+                               next_node_pos[1] + offset_distance * np.sin(bot_angle))
+                
+                # Draw arrow from current to next position
+                if timestep < timeline - 1:
+                    dx = bot_next_pos[0] - bot_current_pos[0]
+                    dy = bot_next_pos[1] - bot_current_pos[1]
+                    
+                    ax.arrow(bot_current_pos[0], bot_current_pos[1], dx * 0.85, dy * 0.85,
+                            head_width=0.06, head_length=0.04, fc=bot_colors[bot_id], 
+                            ec='black', alpha=0.6, linewidth=1.5, zorder=3)
+                
+                # Draw bot as a small circle at offset position
+                ax.scatter(bot_current_pos[0], bot_current_pos[1], s=150, c=[bot_colors[bot_id]],
+                          edgecolors='black', linewidths=1.2, zorder=4, marker='o')
+                
+                # "B" for robot
+                ax.text(bot_current_pos[0], bot_current_pos[1], "B", 
+                       ha='center', va='center', fontsize=7, fontweight='bold', zorder=5, color='black')
             
-            # Draw nodes (by people count)
-            node_sizes = 500 #[G.nodes[node_id]['people'] * 50 + 100 for node_id in G.nodes()]
-            people_counts = [G.nodes[node_id]['people'] for node_id in G.nodes()]
+            # Title
+            ax.set_title(f'Timestep {timestep}/{timeline - 1}', fontsize=12, fontweight='bold', pad=12)
             
-            nodes = nx.draw_networkx_nodes(G, pos, ax=ax, node_size=node_sizes,
-                                          node_color=people_counts, cmap='YlOrRd',
-                                          alpha=0.7, edgecolors='black', linewidths=1.5)
-            
-            # Overlay bot positions as larger stars
-            bot_node_ids = list(bot_positions.keys())
-            bot_node_positions = [pos[nid] for nid in bot_node_ids]
-            bot_counts = [bot_positions[nid] for nid in bot_node_ids]
-            
-            if bot_node_positions:
-                bot_xs = [p[0] for p in bot_node_positions]
-                bot_ys = [p[1] for p in bot_node_positions]
-                ax.scatter(bot_xs, bot_ys, s=[100 * count for count in bot_counts],
-                          c='red', marker='*', edgecolors='navy', linewidths=2, 
-                          label='Bots', zorder=5, alpha=0.9)
-            
-            # Draw labels
-            labels = {node_id: f"{G.nodes[node_id]['people']}" for node_id in G.nodes()}
-            nx.draw_networkx_labels(G, pos, labels, ax=ax, font_size=7, font_weight='bold')
-            
-            # Add colorbar
-            cbar = plt.colorbar(nodes, ax=ax, label='People Count')
-            
-            # Title with timestep
-            ax.set_title(f'Swarm Deployment - Timestep {timestep}/{timeline - 1}\n({len(bots_at_timestep)} bots deployed)', 
-                        fontsize=13, fontweight='bold')
             ax.axis('off')
+            ax.set_aspect('equal')
             
             plt.tight_layout()
             
             # Save frame
-            frame_file = os.path.join(frames_dir, f"frame_{timestep:04d}.png")
-            plt.savefig(frame_file, dpi=100, bbox_inches='tight')
+            frame_file = os.path.join(frames_dir, f"frame_{timestep:02d}.png")
+            plt.savefig(frame_file, dpi=120, bbox_inches='tight', facecolor='white')
             frame_files.append(frame_file)
             plt.close()
         
-        # Create GIF from frames
-        gif_filename = f"{episode_name}.gif"
-        images = [imageio.v2.imread(f) for f in frame_files]
-        imageio.mimsave(gif_filename, images, fps=fps)
-        print(f"GIF saved to {gif_filename}")
-        
-        # Also save first and last frames as static images
-        first_frame_out = f"{episode_name}_first_timestep.png"
-        last_frame_out = f"{episode_name}_final_timestep.png"
-        
-        os.rename(frame_files[0], first_frame_out.replace('.png', '_temp.png'))
-        os.rename(frame_files[-1], last_frame_out.replace('.png', '_temp.png'))
-        
-        print(f"First frame: {first_frame_out}")
-        print(f"Final frame: {last_frame_out}")
-        print(f"All frames saved in: {frames_dir}")
-    
+        print(f"Frames are saved to {frames_dir}")
+
     # finding EP 
     def find_non_dominated_solutions(self, child, child_fitness):
         if not self.ep: # if empty, just child and give up 
@@ -412,7 +396,7 @@ class MOEAD:
         # if child is non-dominated after all solutions, add to EP.
         for index, (_, sol_fitness) in enumerate(self.ep):
 
-            # if equal, don't add to EP. To encourage diversity.
+            # if equal, don't add to EP. Solution already exists. 
             if np.array_equal(child_fitness, sol_fitness):
                 child_is_failure = True
                 break
@@ -483,7 +467,7 @@ def main(MAX_GENERATIONS=100, num_bots=5):
             # 4. Update neighbors. Calc chyvy score with new child y using weight vecors and Z. If lower (better) than current neighbors, overwrite population. 
             algo.update_neighborhood(child, child_fitness, i)
             
-            population.append(list(algo.fv[:int(np.floor(len(algo.fv)*0.3))].copy()))  # for visualization 
+            population.append(list(algo.fv[:int(np.floor(len(algo.fv)*1.0))].copy()))  # for visualization 
         
         print(f"Final Ideal Point (Z): {algo.zi} at {generation} generations.")
     
@@ -495,12 +479,12 @@ def main(MAX_GENERATIONS=100, num_bots=5):
     # Visualize swarm trajectory for the first EP solution
     if algo.ep:
         best_individual, best_fitness = algo.ep[0]
-        algo.visualize_swarm_trajectory(best_individual, episode_name="ep_solution_trajectory", fps=2)
+        algo.visualize_swarm_trajectory(best_individual, dense_graph, episode_name="ep_solution_trajectory", fps=2)
 
 
 if __name__ == "__main__":
 
     visualize_graph(dense_graph)
 
-    MAX_GENERATIONS = 1
+    MAX_GENERATIONS = 200
     main(MAX_GENERATIONS, num_bots=30)
