@@ -16,22 +16,13 @@ class Node:
     def __lt__(self, other):            # for sorting nodes by id. Maybe helps speedup?
         return self.id < other.id
 
-# Create a k-regular graph: each node connects to exactly k neighbors
-# This is simple, sparse, and fully connected
 def create_kregular_graph(num_nodes=70, k=4):
-    """
-    Create a k-regular graph where each node has exactly k connections.
-    
-    @param num_nodes: Number of nodes in the graph
-    @param k: Degree of each node (number of connections per node)
-    @return: Dictionary representation of the graph
-    """
     nodes = [Node(i, people=np.ceil(np.random.normal(12, 5))) for i in range(num_nodes)]
     graph = {node: set() for node in nodes}
     
-    # Connect each node to the next k nodes in the ring (cyclically)
+    # simple connection, just connect to nearby neighbors
     for i, node in enumerate(nodes):
-        for j in range(1, k // 2 + 1):  # TODO: review this cause doesnt seem what we want as regular? or connecting to first few nodes? 
+        for j in range(1, k // 2 + 1): 
             # Connect to node (i+j) % num_nodes and (i-j) % num_nodes
             neighbor1 = nodes[(i + j) % num_nodes]
             neighbor2 = nodes[(i - j) % num_nodes]
@@ -96,4 +87,5 @@ def visualize_graph(graph, filename="campus_graph.png"):
 # Create graph with 70 nodes, each with ~4 neighbors
 dense_graph = create_kregular_graph(num_nodes=70, k=4)
 
+# ONLY for visualization, just a toy example. Do not need to use. 
 # dense_graph = create_small_world_graph(num_nodes=8, k=2, p=0.3)
